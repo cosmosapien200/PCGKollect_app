@@ -137,6 +137,7 @@ class _DevicePageState extends State<DevicePage> {
 
   Future<void> _clear(BuildContext context) async {
     final dev = context.read<DeviceController>();
+    final db = context.read<AppState>().db;
     final s = await guarded(context, () => dev.call('stats'));
     if (s == null || !context.mounted) return;
     final rc = (s['recordings'] ?? {}) as Map;
@@ -154,6 +155,7 @@ class _DevicePageState extends State<DevicePage> {
     );
     if (!ok || !context.mounted) return;
     final r = await guarded(context, () => dev.call('clear', {'force': false}, const Duration(seconds: 15)));
+    if (r != null) await db.audit(null, 'device_clear', 'deleted ${(r['deleted'] as List).length}');
     if (r != null && context.mounted) {
       snack(context, 'Deleted ${(r['deleted'] as List).length}, kept ${(r['kept'] as List).length} untransferred');
       _poll();

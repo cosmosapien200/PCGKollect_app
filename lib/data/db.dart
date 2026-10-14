@@ -49,6 +49,16 @@ class AppDb {
         device_id TEXT NOT NULL, ts INTEGER NOT NULL, json TEXT NOT NULL)''',
       'CREATE TABLE app_meta(key TEXT PRIMARY KEY, value TEXT)',
     ],
+    // v2: per-take checklist, dataset calibration record, audit trail, settings presets
+    [
+      "ALTER TABLE recordings ADD COLUMN checklist_json TEXT NOT NULL DEFAULT '{}'",
+      "ALTER TABLE datasets ADD COLUMN calibration_json TEXT NOT NULL DEFAULT '{}'",
+      '''CREATE TABLE audit(
+        ts INTEGER NOT NULL, dataset_id TEXT, action TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '',
+        operator TEXT)''',
+      'CREATE INDEX audit_ds ON audit(dataset_id, ts)',
+      'CREATE TABLE presets(name TEXT PRIMARY KEY, settings_json TEXT NOT NULL, created_at INTEGER NOT NULL)',
+    ],
   ];
 
   static Future<AppDb> open({String? path}) async {
@@ -73,6 +83,12 @@ class AppDb {
       },
     );
     return AppDb._(db);
+  }
+
+  /// Update-or-insert that keeps columns not present in [row] (REPLACE would reset them).
+  static Future<void> _upsert(DatabaseExecutor ex, String table, String key, Map<String, Object?> row) async {
+    final n = await ex.update(table, row, where: '$key = ?', whereArgs: [row[key]]);
+    if (n == 0) await ex.insert(table, row);
   }
 
   // --- meta -----------------------------------------------------------------
@@ -101,7 +117,7 @@ class AppDb {
     final clash = await db.query('datasets',
         where: 'name_lc = ? AND dataset_id != ?', whereArgs: [d.name.trim().toLowerCase(), d.id]);
     if (clash.isNotEmpty) throw DuplicateNameException(d.name);
-    await db.insert('datasets', d.toRow(), conflictAlgorithm: ConflictAlgorithm.replace);
+    await _upsert(db, 'datasets', 'dataset_id', d.toRow());
   }
 
   // --- subjects -------------------------------------------------------------
@@ -115,8 +131,7 @@ class AppDb {
     return r.isEmpty ? null : Subject.fromRow(r.first);
   }
 
-  Future<void> saveSubject(Subject s) =>
-      db.insert('subjects', s.toRow(), conflictAlgorithm: ConflictAlgorithm.replace);
+  Future<void> saveSubject(Subject s) => _upsert(db, 'subjects', 'subject_id', s.toRow());
 
   // --- recordings -----------------------------------------------------------
   Future<List<Recording>> recordings(String datasetId) async {
@@ -129,8 +144,7 @@ class AppDb {
     return r.isEmpty ? null : Recording.fromRow(r.first);
   }
 
-  Future<void> saveRecording(Recording r, {Transaction? txn}) =>
-      (txn ?? db).insert('recordings', r.toRow(), conflictAlgorithm: ConflictAlgorithm.replace);
+  Future<void> saveRecording(Recording r, {Transaction? txn}) => _upsert(txn ?? db, 'recordings', 'recording_id', r.toRow());
 
   Future<int> nextTake(String subjectId) async {
     final r = await db.rawQuery('SELECT MAX(take_index) AS m FROM recordings WHERE subject_id = ?', [subjectId]);
@@ -177,6 +191,49 @@ class AppDb {
             (r['pnoise'] as num?)?.toDouble(), r['reason'] as String))
         .toList();
   }
+}
+
+/// Audit trail, presets, checklist and calibration (schema v2).
+extension Extras on AppDb {
+  /// Records who changed what (local only; never leaves the phone unless exported).
+  Future<void> audit(String? datasetId, String action, [String detail = '']) async {
+    final op = await getMeta('operator_id');
+    await db.insert('audit', {
+      'ts': DateTime.now().millisecondsSinceEpoch, 'dataset_id': datasetId, 'action': action,
+      'detail': detail, 'operator': op,
+    });
+  }
+
+  Future<List<Map<String, Object?>>> auditLog(String? datasetId, {int limit = 200}) => db.query('audit',
+      where: datasetId == null ? null : 'dataset_id = ?', whereArgs: datasetId == null ? null : [datasetId],
+      orderBy: 'ts DESC', limit: limit);
+
+  Future<Map<String, Map<String, dynamic>>> presets() async {
+    final rows = await db.query('presets', orderBy: 'name');
+    return {for (final r in rows) r['name'] as String: jsonDecode(r['settings_json'] as String) as Map<String, dynamic>};
+  }
+
+  Future<void> savePreset(String name, Map<String, dynamic> settings) => db.insert('presets',
+      {'name': name, 'settings_json': jsonEncode(settings), 'created_at': DateTime.now().millisecondsSinceEpoch},
+      conflictAlgorithm: ConflictAlgorithm.replace);
+
+  Future<void> deletePreset(String name) => db.delete('presets', where: 'name = ?', whereArgs: [name]);
+
+  Future<Map<String, dynamic>> checklist(String recordingId) async {
+    final r = await db.query('recordings', columns: ['checklist_json'], where: 'recording_id = ?', whereArgs: [recordingId]);
+    return r.isEmpty ? {} : jsonDecode(r.first['checklist_json'] as String) as Map<String, dynamic>;
+  }
+
+  Future<void> setChecklist(String recordingId, Map<String, dynamic> c) => db.update(
+      'recordings', {'checklist_json': jsonEncode(c)}, where: 'recording_id = ?', whereArgs: [recordingId]);
+
+  Future<Map<String, dynamic>> calibration(String datasetId) async {
+    final r = await db.query('datasets', columns: ['calibration_json'], where: 'dataset_id = ?', whereArgs: [datasetId]);
+    return r.isEmpty ? {} : jsonDecode(r.first['calibration_json'] as String) as Map<String, dynamic>;
+  }
+
+  Future<void> setCalibration(String datasetId, Map<String, dynamic> c) => db.update(
+      'datasets', {'calibration_json': jsonEncode(c)}, where: 'dataset_id = ?', whereArgs: [datasetId]);
 }
 
 extension DeviceSnapshots on AppDb {

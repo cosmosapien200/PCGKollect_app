@@ -6,11 +6,12 @@ import '../state/app_state.dart';
 import '../state/device_controller.dart';
 import 'common.dart';
 import 'recording_detail_page.dart';
+import 'recording_page.dart';
 import 'subject_form_page.dart';
 
 enum _Sort { newest, subject, quality, duration }
 
-enum _Filter { all, complete, incomplete, notTransferred, transferError }
+enum _Filter { all, needsReview, complete, incomplete, notTransferred, transferError }
 
 class DataPage extends StatefulWidget {
   const DataPage({super.key});
@@ -38,6 +39,7 @@ class _DataPageState extends State<DataPage> {
     }
     rows = rows.where((x) => switch (filter) {
           _Filter.all => true,
+          _Filter.needsReview => needsReview(x.$1),
           _Filter.complete => x.$1.state == RecState.complete,
           _Filter.incomplete => x.$1.state != RecState.complete,
           _Filter.notTransferred => !x.$1.onPhone,
@@ -76,6 +78,7 @@ class _DataPageState extends State<DataPage> {
                       value: filter,
                       items: const [
                         DropdownMenuItem(value: _Filter.all, child: Text('All statuses')),
+                        DropdownMenuItem(value: _Filter.needsReview, child: Text('Review queue')),
                         DropdownMenuItem(value: _Filter.complete, child: Text('Complete')),
                         DropdownMenuItem(value: _Filter.incomplete, child: Text('Incomplete')),
                         DropdownMenuItem(value: _Filter.notTransferred, child: Text('Not yet transferred')),
@@ -99,6 +102,7 @@ class _DataPageState extends State<DataPage> {
               ]),
             ),
           ),
+          SliverToBoxAdapter(child: _DataChecks(subjects: app.subjects)),
           if (rows.isEmpty)
             const SliverFillRemaining(
               hasScrollBody: false,
@@ -149,6 +153,44 @@ class _DataPageState extends State<DataPage> {
   }
 }
 
+/// Review queue (spec 01 §14.3): incomplete, low-coverage (< 50 %) or not yet reviewed takes.
+bool needsReview(Recording r) =>
+    r.onPhone && (r.state != RecState.complete || (r.usableRatio ?? 0) < 0.5 || r.reviewedAt == null);
+
+/// Duplicate and missing-data checks (spec 01 §14.4).
+class _DataChecks extends StatelessWidget {
+  final List<Subject> subjects;
+  const _DataChecks({required this.subjects});
+
+  @override
+  Widget build(BuildContext context) {
+    final byLabel = <String, int>{};
+    for (final s in subjects) {
+      final k = s.label.trim().toLowerCase();
+      byLabel[k] = (byLabel[k] ?? 0) + 1;
+    }
+    final dup = byLabel.entries.where((e) => e.value > 1).map((e) => e.key).toList();
+    final noMeta = subjects.where((s) => s.heightCm == null || s.weightKg == null).length;
+    if (dup.isEmpty && noMeta == 0) return const SizedBox.shrink();
+    final t = Theme.of(context).textTheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      child: Card(
+        color: Colors.amber.shade100,
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            if (dup.isNotEmpty)
+              Text('Possible duplicate subjects (same label): ${dup.join(', ')}', style: t.bodyMedium?.copyWith(color: Colors.black87)),
+            if (noMeta > 0)
+              Text('$noMeta subject(s) without height/weight', style: t.bodyMedium?.copyWith(color: Colors.black87)),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
 class _RecordingTile extends StatelessWidget {
   final Recording rec;
   final Subject? subject;
@@ -176,7 +218,11 @@ class _RecordingTile extends StatelessWidget {
                     ? ('Complete', Colors.green.shade700)
                     : (RecState.label(rec.state), Colors.orange.shade800);
     return ListTile(
-      onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => RecordingDetailPage(recordingId: rec.id))),
+      // an unfinished take reopens the live screen (the device keeps recording without the app)
+      onTap: () => Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => !rec.onPhone && !RecState.terminal(rec.state)
+              ? RecordingPage(recordingId: rec.id)
+              : RecordingDetailPage(recordingId: rec.id))),
       title: Text(s?.label ?? 'Unknown subject', style: t.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
       subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text('${shortId(rec.subjectId)} · take ${rec.takeIndex} · ${fmtDate(rec.startAt ?? rec.createdAt)}',

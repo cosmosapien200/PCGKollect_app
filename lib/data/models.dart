@@ -181,6 +181,7 @@ class Recording {
   String notes;
   String tags;
   Map<String, dynamic>? meta; // device meta.json
+  Map<String, dynamic> checklist = {}; // take checklist (saved via AppDb.setChecklist)
 
   Recording({
     required this.id,
@@ -273,7 +274,8 @@ class Recording {
       ..transferError = r['transfer_error'] as String?
       ..deviceId = r['device_id'] as String?
       ..reviewedAt = t('reviewed_at')
-      ..meta = r['meta_json'] == null ? null : jsonDecode(r['meta_json'] as String) as Map<String, dynamic>;
+      ..meta = r['meta_json'] == null ? null : jsonDecode(r['meta_json'] as String) as Map<String, dynamic>
+      ..checklist = r['checklist_json'] == null ? {} : jsonDecode(r['checklist_json'] as String) as Map<String, dynamic>;
   }
 }
 

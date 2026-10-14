@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
@@ -46,6 +48,7 @@ class AppState extends ChangeNotifier {
     final now = DateTime.now();
     final d = Dataset(id: const Uuid().v4(), name: name.trim(), createdAt: now, updatedAt: now, policy: Policy());
     await db.saveDataset(d); // throws DuplicateNameException
+    await db.audit(d.id, 'dataset_created', d.name);
     datasets = await db.datasets();
     await switchTo(d);
     return d;
@@ -68,6 +71,7 @@ class AppState extends ChangeNotifier {
       d.name = old;
       rethrow;
     }
+    await db.audit(d.id, 'dataset_renamed', '$old -> ${d.name}');
     await refresh();
   }
 
@@ -76,6 +80,7 @@ class AppState extends ChangeNotifier {
       ..archived = true
       ..updatedAt = DateTime.now();
     await db.saveDataset(d);
+    await db.audit(d.id, 'dataset_archived', d.name);
     datasets = await db.datasets();
     if (active?.id == d.id) {
       active = datasets.firstOrNull;
@@ -91,6 +96,7 @@ class AppState extends ChangeNotifier {
       ..settingsRev = d.settingsRev + 1
       ..updatedAt = DateTime.now();
     await db.saveDataset(d);
+    await db.audit(d.id, 'settings_saved', 'rev ${d.settingsRev}: ${jsonEncode(p.toJson())}');
     await refresh();
   }
 
@@ -99,6 +105,7 @@ class AppState extends ChangeNotifier {
       ..deviceRev = rev
       ..deviceSyncedAt = DateTime.now();
     await db.saveDataset(d);
+    await db.audit(d.id, 'dataset_activated', 'device acknowledged rev $rev');
     await refresh();
   }
 }

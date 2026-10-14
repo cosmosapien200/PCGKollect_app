@@ -3,6 +3,7 @@ import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../data/db.dart';
 import '../data/models.dart';
 import '../services/export_service.dart';
 import '../services/stats.dart';
@@ -181,12 +182,15 @@ class _DsStatsPageState extends State<DsStatsPage> {
     final app = context.read<AppState>();
     final svc = ExportService(p.join(app.root, 'exports'));
     final ds = app.active!;
+    final cal = await app.db.calibration(ds.id);
+    if (!context.mounted) return;
     final f = await guarded(context, () => switch (kind) {
           'csv' => svc.exportCsv(ds, subs, recs),
-          'json' => svc.exportJson(ds, subs, recs),
-          _ => svc.exportZip(ds, subs, recs),
+          'json' => svc.exportJson(ds, subs, recs, calibration: cal),
+          _ => svc.exportZip(ds, subs, recs, calibration: cal),
         });
     if (f == null) return;
+    await app.db.audit(ds.id, 'export_$kind', '${recs.length} recordings, ${subs.length} subjects');
     await SharePlus.instance.share(ShareParams(files: [XFile(f.path)], subject: 'PCGKolect export — ${ds.name}'));
   }
 }

@@ -65,6 +65,7 @@ class SyncService {
           report('skip');
         } else {
           await _import(it, files, deviceId, report);
+          await db.audit(it.datasetId, 'recording_imported', '${it.recordingId} sha256 $audioSha');
           res.imported++;
         }
         if (it.transfer != 'verified') {
@@ -74,6 +75,7 @@ class SyncService {
         if (deleteAfter) {
           report('delete');
           await link.call('delete', {'recording_id': it.recordingId, 'sha256': audioSha});
+          await db.audit(it.datasetId, 'device_copy_deleted', '${it.recordingId} after verified transfer');
           res.deleted++;
         }
         report('done');

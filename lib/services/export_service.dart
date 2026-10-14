@@ -15,10 +15,11 @@ class ExportService {
   ExportService(this.outDir);
 
   static const _fields = ['site', 'operator', 'body_position', 'auscultation_location', 'device_placement', 'conditions'];
+  static const _check = ['operator_id', 'posture', 'auscultation_site', 'contact', 'ambient_noise', 'breathing'];
 
   static List<String> csvHeader() => [
         'dataset_id', 'subject_id', 'recording_id', 'take_index', 'subject_label', 'age_years_at_capture', 'sex',
-        'height_cm', 'weight_kg', ..._fields, 'start_time_utc', 'state', 'completion_reason', 'on_phone',
+        'height_cm', 'weight_kg', ..._fields, for (final c in _check) 'take_$c', 'start_time_utc', 'state', 'completion_reason', 'on_phone',
         'captured_duration_ms', 'scored_duration_ms', 'usable_duration_ms', 'usable_ratio', 'usable_beats',
         'total_beats', 'longest_usable_run_ms', 'longest_usable_run_beats', 'mean_beat_conf', 'snr_db',
         'clipping_ratio', 'model_version', 'settings_revision', 'audio_sha256', 'reviewed_utc', 'tags', 'notes',
@@ -32,7 +33,7 @@ class ExportService {
 
   static List<Object?> csvRow(Recording r, Subject? s) => [
         r.datasetId, r.subjectId, r.id, r.takeIndex, s?.label, s?.ageAt(r.startAt ?? r.createdAt), s?.sex,
-        s?.heightCm, s?.weightKg, for (final f in _fields) s?.fields[f],
+        s?.heightCm, s?.weightKg, for (final f in _fields) s?.fields[f], for (final c in _check) r.checklist[c],
         r.startAt?.toUtc().toIso8601String(), r.state, r.completionReason, r.onPhone,
         r.durationMs, r.scoredMs, r.usableMs, r.usableRatio, r.usableBeats, r.totalBeats, r.longestRunMs,
         r.longestRunBeats, r.meanConf, r.snrDb, r.clippingRatio, r.modelVersion, r.settingsRev, r.sha256,
@@ -47,13 +48,15 @@ class ExportService {
     return b.toString();
   }
 
-  static Map<String, Object?> summaryJson(Dataset ds, List<Subject> subjects, List<Recording> recs) {
+  static Map<String, Object?> summaryJson(Dataset ds, List<Subject> subjects, List<Recording> recs,
+      {Map<String, dynamic> calibration = const {}}) {
     final onPhone = recs.where((r) => r.onPhone).toList();
     return {
       'schema_version': 1,
       'generated_utc': DateTime.now().toUtc().toIso8601String(),
       'dataset': {
         'dataset_id': ds.id, 'name': ds.name, 'settings_revision': ds.settingsRev, 'settings': ds.policy.toJson(),
+        'calibration': calibration,
       },
       'analysis_unit': 'recording',
       'quantile_convention': 'linear interpolation, h = (N-1)p (Hyndman & Fan type 7)',
@@ -102,12 +105,14 @@ class ExportService {
   Future<File> exportCsv(Dataset ds, List<Subject> subjects, List<Recording> recs) => _write(
       '${_slug(ds.name)}_recordings_${_stamp()}.csv', recordingsCsv(recs, {for (final s in subjects) s.id: s}));
 
-  Future<File> exportJson(Dataset ds, List<Subject> subjects, List<Recording> recs) => _write(
-      '${_slug(ds.name)}_summary_${_stamp()}.json',
-      const JsonEncoder.withIndent('  ').convert(summaryJson(ds, subjects, recs)));
+  Future<File> exportJson(Dataset ds, List<Subject> subjects, List<Recording> recs,
+          {Map<String, dynamic> calibration = const {}}) =>
+      _write('${_slug(ds.name)}_summary_${_stamp()}.json',
+          const JsonEncoder.withIndent('  ').convert(summaryJson(ds, subjects, recs, calibration: calibration)));
 
   /// ZIP: README, manifest.json, recordings.csv and `recordings/<id>/` (audio.wav, sidecars, meta).
-  Future<File> exportZip(Dataset ds, List<Subject> subjects, List<Recording> recs) async {
+  Future<File> exportZip(Dataset ds, List<Subject> subjects, List<Recording> recs,
+      {Map<String, dynamic> calibration = const {}}) async {
     await Directory(outDir).create(recursive: true);
     final path = p.join(outDir, '${_slug(ds.name)}_backup_${_stamp()}.zip');
     final enc = ZipFileEncoder()..create(path);
@@ -117,7 +122,8 @@ class ExportService {
     }
 
     addText('README.md', _readme(ds));
-    addText('manifest.json', const JsonEncoder.withIndent('  ').convert(summaryJson(ds, subjects, recs)));
+    addText('manifest.json',
+        const JsonEncoder.withIndent('  ').convert(summaryJson(ds, subjects, recs, calibration: calibration)));
     addText('recordings.csv', recordingsCsv(recs, {for (final s in subjects) s.id: s}));
     for (final r in recs.where((r) => r.onPhone)) {
       for (final f in ['audio.wav', 'beats.csv', 'quality.csv', 'meta.json']) {

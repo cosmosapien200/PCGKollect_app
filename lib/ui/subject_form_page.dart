@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
+import '../data/db.dart';
 import '../data/models.dart';
 import '../state/app_state.dart';
 import 'common.dart';
@@ -25,7 +26,18 @@ const _optionalFields = {
   'conditions': 'Acquisition conditions',
 };
 
+/// Per-take recording checklist (spec 01 §14.1): reproducibility, not required to record.
+const takeChecklist = {
+  'posture': ['Supine', 'Sitting', 'Standing', 'Left lateral', 'Other'],
+  'auscultation_site': ['Aortic', 'Pulmonic', 'Tricuspid', 'Mitral', 'Other'],
+  'contact': ['Bare skin', 'Through thin clothing', 'Gel / coupling medium'],
+  'ambient_noise': ['Quiet', 'Moderate', 'Noisy'],
+  'breathing': ['Normal', 'Breath hold', 'Deep breathing'],
+};
+
 class _SubjectFormPageState extends State<SubjectFormPage> {
+  final checklist = <String, String>{};
+  final operatorId = TextEditingController();
   final _form = GlobalKey<FormState>();
   late final String subjectId = widget.existing?.id ?? const Uuid().v4();
   final label = TextEditingController();
@@ -41,6 +53,7 @@ class _SubjectFormPageState extends State<SubjectFormPage> {
   @override
   void initState() {
     super.initState();
+    context.read<AppState>().db.getMeta('operator_id').then((v) => operatorId.text = v ?? '');
     final s = widget.existing;
     if (s != null) {
       label.text = s.label;
@@ -88,6 +101,9 @@ class _SubjectFormPageState extends State<SubjectFormPage> {
       createdAt: DateTime.now(),
     )..settingsRev = ds.settingsRev;
     await app.db.saveRecording(rec);
+    final op = operatorId.text.trim();
+    await app.db.setMeta('operator_id', op.isEmpty ? null : op);
+    await app.db.setChecklist(rec.id, {...checklist, if (op.isNotEmpty) 'operator_id': op});
     await app.refresh();
     if (!mounted) return;
     Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => RecordingPage(recordingId: rec.id)));
@@ -189,6 +205,20 @@ class _SubjectFormPageState extends State<SubjectFormPage> {
             maxLines: 3,
             decoration: const InputDecoration(labelText: 'Notes', border: OutlineInputBorder()),
           ),
+          const SectionTitle('Take checklist (this recording)'),
+          TextField(
+            controller: operatorId,
+            decoration: const InputDecoration(labelText: 'Operator ID', helperText: 'Remembered on this phone', border: OutlineInputBorder()),
+          ),
+          for (final e in takeChecklist.entries) ...[
+            const SizedBox(height: 10),
+            DropdownButtonFormField<String>(
+              initialValue: checklist[e.key],
+              decoration: InputDecoration(labelText: e.key.replaceAll('_', ' '), border: const OutlineInputBorder()),
+              items: [for (final o in e.value) DropdownMenuItem(value: o, child: Text(o))],
+              onChanged: (v) => setState(() => v == null ? checklist.remove(e.key) : checklist[e.key] = v),
+            ),
+          ],
           const SizedBox(height: 20),
           FilledButton.icon(
             onPressed: _submit,

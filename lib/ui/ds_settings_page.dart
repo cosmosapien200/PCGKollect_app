@@ -6,6 +6,7 @@ import '../core/protocol.dart';
 import '../state/app_state.dart';
 import '../state/device_controller.dart';
 import 'common.dart';
+import 'ds_extras.dart';
 import 'home_shell.dart';
 
 class DsSettingsPage extends StatefulWidget {
@@ -45,7 +46,7 @@ class _DsSettingsPageState extends State<DsSettingsPage> {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 6),
         child: TextFormField(
-          key: ValueKey('$key-${ds.id}-$loadedRev'),
+          key: ValueKey('$key-${ds.id}-$loadedRev-${p.hashCode}'),
           initialValue: integer ? value.toInt().toString() : _trim(value),
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.]'))],
@@ -165,6 +166,17 @@ class _DsSettingsPageState extends State<DsSettingsPage> {
             child: const Text('Discard edits'),
           ),
       ]),
+      const SizedBox(height: 16),
+      PresetsCard(
+        current: () => p,
+        onLoad: (np) => setState(() {
+          p = np;
+          dirty = true;
+          loadedRev = -2; // rebuild fields
+        }),
+      ),
+      CalibrationCard(datasetId: ds.id),
+      AuditCard(datasetId: ds.id),
       const SizedBox(height: 24),
     ]);
   }
