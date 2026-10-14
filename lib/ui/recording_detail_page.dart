@@ -1,9 +1,11 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Interval;
 import 'package:provider/provider.dart';
 
 import '../data/models.dart';
 import '../state/app_state.dart';
 import 'common.dart';
+import 'player.dart';
+import 'package:path/path.dart' as p;
 
 /// Recording detail: subject + capture metadata and quality summary.
 /// (Playback, timeline and annotations arrive in milestone M2.)
@@ -17,6 +19,9 @@ class RecordingDetailPage extends StatefulWidget {
 class _RecordingDetailPageState extends State<RecordingDetailPage> {
   Recording? r;
   Subject? s;
+  List<Interval> quality = [], beats = [];
+  final notes = TextEditingController();
+  final tags = TextEditingController();
 
   @override
   void initState() {
@@ -28,7 +33,28 @@ class _RecordingDetailPageState extends State<RecordingDetailPage> {
     final db = context.read<AppState>().db;
     r = await db.recording(widget.recordingId);
     s = r == null ? null : await db.subject(r!.subjectId);
+    if (r != null) {
+      quality = await db.qualityIntervals(r!.id);
+      beats = await db.beats(r!.id);
+      notes.text = r!.notes;
+      tags.text = r!.tags;
+    }
     if (mounted) setState(() {});
+  }
+
+  /// Notes, tags and review are user annotations; they never change algorithmic labels.
+  Future<void> _saveAnnotations({bool? reviewed}) async {
+    final app = context.read<AppState>();
+    r!
+      ..notes = notes.text.trim()
+      ..tags = tags.text.trim();
+    if (reviewed != null) r!.reviewedAt = reviewed ? DateTime.now() : null;
+    await app.db.saveRecording(r!);
+    await app.refresh();
+    if (mounted) {
+      setState(() {});
+      snack(context, 'Saved');
+    }
   }
 
   @override
@@ -53,6 +79,27 @@ class _RecordingDetailPageState extends State<RecordingDetailPage> {
               subtitle: Text(r.transferError ?? 'Use Sync or Download to copy it from the device.'),
             ),
           ),
+        if (r.onPhone) ...[
+          const SectionTitle('Playback'),
+          RecordingPlayer(
+            wavPath: p.join(r.localDir!, 'audio.wav'),
+            cacheDir: p.join(context.read<AppState>().root, 'cache', r.id),
+            quality: quality,
+            beats: beats,
+          ),
+        ],
+        const SectionTitle('Review'),
+        TextField(controller: notes, maxLines: 3, decoration: const InputDecoration(labelText: 'Notes', border: OutlineInputBorder())),
+        const SizedBox(height: 8),
+        TextField(controller: tags, decoration: const InputDecoration(labelText: 'Tags (comma separated)', border: OutlineInputBorder())),
+        const SizedBox(height: 8),
+        Wrap(spacing: 12, crossAxisAlignment: WrapCrossAlignment.center, children: [
+          FilledButton.tonal(onPressed: () => _saveAnnotations(), child: const Text('Save notes')),
+          r.reviewedAt == null
+              ? OutlinedButton.icon(onPressed: () => _saveAnnotations(reviewed: true), icon: const Icon(Icons.task_alt), label: const Text('Mark reviewed'))
+              : TextButton.icon(onPressed: () => _saveAnnotations(reviewed: false), icon: const Icon(Icons.task_alt, color: Colors.green),
+                  label: Text('Reviewed ${fmtDate(r.reviewedAt)} — undo')),
+        ]),
         const SectionTitle('Subject'),
         KV('Label', s?.label ?? '—'),
         KV('Subject ID', r.subjectId),

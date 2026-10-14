@@ -217,21 +217,20 @@ class _StateBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
     final (title, sub, color, icon) = error != null
-        ? ('Device did not accept the recording', error!, cs.errorContainer, Icons.error_outline)
+        ? ('Device did not accept the recording', error!, Colors.red.shade100, Icons.error_outline)
         : preparing
-            ? ('Preparing device…', 'Sending dataset, subject and recording IDs', cs.surfaceContainerHighest, Icons.hourglass_top)
+            ? ('Preparing device…', 'Sending dataset, subject and recording IDs', Colors.blueGrey.shade100, Icons.hourglass_top)
             : switch (rec.state) {
                 RecState.armed => ('Waiting for reliable audio',
                     'Recording starts automatically after the required contiguous usable audio. Place the sensor and keep still.',
                     Colors.amber.shade100, Icons.hearing),
                 RecState.recording => ('Recording', 'Collecting usable heart sounds', Colors.red.shade100, Icons.fiber_manual_record),
-                RecState.finalizing => ('Finalizing', 'Saving files on the device', cs.surfaceContainerHighest, Icons.save),
+                RecState.finalizing => ('Finalizing', 'Saving files on the device', Colors.blueGrey.shade100, Icons.save),
                 RecState.complete => ('DONE', 'Target reached and files saved on the device', Colors.green.shade100, Icons.check_circle),
                 RecState.incomplete => ('Incomplete', 'Saved, but the targets were not met (${status?.reason ?? rec.completionReason ?? ''})',
                     Colors.orange.shade100, Icons.warning_amber),
-                _ => (RecState.label(rec.state), status?.reason ?? '', cs.surfaceContainerHighest, Icons.info_outline),
+                _ => (RecState.label(rec.state), status?.reason ?? '', Colors.blueGrey.shade100, Icons.info_outline),
               };
     return Card(
       color: color,
