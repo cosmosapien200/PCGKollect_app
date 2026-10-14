@@ -80,7 +80,18 @@ class BleLink implements DeviceLink {
   Future<void> connect() async {
     _set(LinkState.connecting);
     try {
-      await UniversalBle.connect(deviceId, timeout: const Duration(seconds: 20));
+      // A link dropped from the device side (reset, power cut) can leave stale state in
+      // the plugin/Android stack that makes the next connect fail at once: clear it first
+      // and retry once.
+      try {
+        await UniversalBle.disconnect(deviceId, timeout: const Duration(seconds: 3));
+      } catch (_) {}
+      try {
+        await UniversalBle.connect(deviceId, timeout: const Duration(seconds: 20));
+      } catch (_) {
+        await Future.delayed(const Duration(milliseconds: 800));
+        await UniversalBle.connect(deviceId, timeout: const Duration(seconds: 20));
+      }
       _subs.add(UniversalBle.connectionStream(deviceId).listen((up) {
         if (!up) {
           _failPending('BLE_DISCONNECTED');
