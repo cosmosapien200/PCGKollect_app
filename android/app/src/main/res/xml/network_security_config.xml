@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The device HTTP API runs on a private hotspot address assigned by DHCP, which cannot be
+     listed in advance; cleartext is allowed for it. Access is gated by a per-session bearer
+     token delivered over bonded BLE (docs/PROTOCOL.md §4 threat model). -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>
