@@ -98,7 +98,20 @@ class BleLink implements DeviceLink {
           _set(LinkState.disconnected);
         }
       }));
-      await UniversalBle.discoverServices(deviceId);
+      // connect() can resolve before Android reports the link (seen right after a
+      // device reflash/reset); discovering too early never completes. Wait for the
+      // real state, then discover with one retry.
+      for (var i = 0; i < 20; i++) {
+        if (await UniversalBle.getConnectionState(deviceId) == BleConnectionState.connected) break;
+        await Future.delayed(const Duration(milliseconds: 150));
+      }
+      await Future.delayed(const Duration(milliseconds: 300));
+      try {
+        await UniversalBle.discoverServices(deviceId, timeout: const Duration(seconds: 8));
+      } catch (_) {
+        await Future.delayed(const Duration(milliseconds: 500));
+        await UniversalBle.discoverServices(deviceId, timeout: const Duration(seconds: 10));
+      }
       if (Platform.isAndroid) {
         try {
           _mtu = await UniversalBle.requestMtu(deviceId, 517);

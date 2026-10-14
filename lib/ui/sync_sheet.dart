@@ -42,6 +42,7 @@ class _SyncSheetState extends State<_SyncSheet> {
   String? fatal;
   bool running = true;
   final log = <String>[];
+  final skipped = <String>{};
 
   @override
   void initState() {
@@ -63,8 +64,10 @@ class _SyncSheetState extends State<_SyncSheet> {
           if (!mounted) return;
           setState(() {
             p = x;
-            if (x.phase == 'done' || x.phase == 'skip' || x.phase == 'error') {
-              log.add('${shortId(x.recordingId)}: ${x.phase == 'error' ? 'failed — ${x.error}' : x.phase == 'skip' ? 'already on phone' : 'ok'}');
+            if (x.phase == 'skip') skipped.add(x.recordingId);
+            if (x.phase == 'done' || x.phase == 'error') {
+              log.add('${shortId(x.recordingId)}: ${x.phase == 'error' ? 'failed — ${x.error}' : skipped.contains(x.recordingId) ? 'already on phone' : 'downloaded + verified'}'
+                  '${x.phase == 'done' && widget.deleteAfter ? ', device copy deleted' : ''}');
             }
           });
         },
