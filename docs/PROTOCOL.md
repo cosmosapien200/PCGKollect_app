@@ -89,7 +89,10 @@ Measured (ESP32-S3 ↔ Luckfox Pico Mini, audio streaming and NPU running, 2026-
 
 ## 2. Control JSON (CTRL_PROTO 1)
 
-Requests: `{"v":1,"id":<u32>,"op":"<name>", ...args}`
+Requests: `{"v":1,"id":<u32>,"op":"<name>", "utc_ms":<phone wall clock, optional>, ...args}`
+
+The RV1103 has no RTC: any request carrying `utc_ms` (the app sends it with every request) sets
+the device's wall-clock offset used for `start_time_utc`.
 Responses: `{"v":1,"id":<same>,"st":"OK|REJECTED|BUSY|UNSUPPORTED|INVALID|TIMEOUT|ERROR", "err":"<code>", ...payload}`
 
 The same JSON travels app → ESP (BLE) → RV (UART). Ops marked **ESP** are answered by the ESP
@@ -105,17 +108,18 @@ and never forwarded.
 | `force_start` | RV | `recording_id` | `state` |
 | `stop` | RV | `recording_id, reason` | `state` (recording becomes `INCOMPLETE` unless targets were already met) |
 | `cancel` | RV | `recording_id` | `state` (only before RECORDING; nothing saved) |
-| `manifest` | RV | `offset?, limit?` (default 0/50) | `total, items[]` (§4.2) |
+| `manifest` | RV | `offset?, limit?` (limit ≤ 6 so a page fits one 4 KB frame) | `total, offset, items[]` (§5 manifest item) |
 | `open` | RV | `recording_id, kind` (`audio`,`beats`,`quality`,`meta`) | `handle, size, sha256` |
 | `read` | RV | `handle, offset, len` (≤ 4096) | CHUNK frame; JSON RSP only on error |
 | `close` | RV | `handle` | – |
 | `ack` | RV | `recording_id, sha256` | `transfer_state` = `verified` |
 | `delete` | RV | `recording_id, sha256` | `deleted:true` — REJECTED `NOT_VERIFIED` unless acked with the same hash |
 | `clear` | RV | `force` (bool, default false) | `deleted[], kept[]`; without `force` only verified recordings are deleted |
-| `logs` | RV | `lines?` | `lines[]` |
+| `logs` | RV | `lines?` (≤ 40) | `lines[]` |
+| `ping`, `link_stats`, `baud`, `flood` | RV | – | link maintenance / benchmark (ESP-internal) |
 | `wifi_set` | **ESP** | `ssid, pass` | `state` |
 | `wifi_forget` | **ESP** | – | – |
-| `wifi_status` | **ESP** | – | `state (off|connecting|connected|failed), ip, port, rssi, token, http_ready, err` |
+| `wifi_status` | **ESP** | – | `state (off|connecting|connected|failed), ssid, ip, port, rssi, token (bonded links only), http_ready, err` |
 
 ### 2.1 Dataset settings (sent in `set_dataset`)
 
@@ -207,7 +211,13 @@ Every request carries `Authorization: Bearer <token>`; otherwise 401. The token 
 | POST | `/v1/transfers/{id}/delete` | body `{sha256}` |
 | POST | `/v1/recordings/clear` | body `{force:false}` |
 
-At most 2 concurrent HTTP clients; bodies are streamed from the RV in ≤ 4 KB chunks, never
+Downloads carry `Content-Length`, `Accept-Ranges: bytes`, `X-Content-SHA256` (whole-file hash) and
+`X-File-Size`; `Range: bytes=a-b` answers 206 with `Content-Range`. If the RV read fails mid-body
+the connection closes early — the client detects the short body and resumes with Range.
+RV statuses map to HTTP: OK→200, INVALID→400, REJECTED/NOT_FOUND→404, REJECTED/BUSY→409,
+TIMEOUT→504, link down→503, other→502.
+
+One request is served at a time (3 sockets max); bodies are streamed from the RV in ≤ 4 KB chunks, never
 held whole in ESP RAM. Errors: JSON `{err}` with 400/401/404/409/503/504.
 
 Threat model: the hotspot LAN is private to the operator's phone but any hotspot client could
@@ -245,6 +255,13 @@ total_beats, longest_usable_run_ms, longest_usable_run_beats, mean_beat_conf, sn
 clipping_ratio, criteria{name: met}}, transport{uart_frames_ok, uart_crc_errors,
 uart_sequence_gaps, audio_buffer_overruns}, gaps[], completion_state, force_started,
 pretrigger_samples, firmware{rv, esp}`.
+
+Manifest item: `recording_id, dataset_id, subject_id, take, start_utc_ms, duration_ms,
+usable_ms, completion (complete|incomplete|interrupted), transfer (available|verified),
+files{audio,beats,quality,meta: {size, sha256}}`.
+
+`clear` with `force:true` is refused (`FORCE_DISABLED`) unless the device-side flag file
+`/root/pcg_state/allow_force_clear` exists — the app alone cannot authorise destructive clears.
 
 Transfer states: `available → verified (ack) → deleted`. Only `verified` with matching hash may
 be deleted. The phone never deletes on transport completion alone.
