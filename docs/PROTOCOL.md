@@ -146,7 +146,7 @@ Sent as `EVT {"ev":"status", ...}` at `telemetry_hz` and on every state change, 
 
 | key | meaning |
 |---|---|
-| `st` | `IDLE, CONFIGURED, ARMED, RECORDING, FINALIZING, DONE, INCOMPLETE, CANCELLED, INTERRUPTED, STORAGE_FULL, MODEL_ERROR` |
+| `state` | `IDLE, CONFIGURED, ARMED, RECORDING, FINALIZING, DONE, INCOMPLETE, CANCELLED, INTERRUPTED, STORAGE_FULL, MODEL_ERROR` |
 | `rid` | active/last recording id |
 | `q` | `window_quality_score` 0–100 (int) or `null` when no model output |
 | `qdef` | `"wqs_v2"` = 100 × mean max-heart-state posterior over the last scored second |
