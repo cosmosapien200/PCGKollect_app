@@ -81,3 +81,19 @@ Newest last. Design: [PLAN.md](PLAN.md), wire formats: [PROTOCOL.md](PROTOCOL.md
 - Diagnostics every 10 s (HTTP adds ESP heap/RSSI/link counters), stored as snapshots, flagged
   STALE after 30 s; device log export; guarded clear (untransferred recordings are kept and
   counted in the dialog; force clear needs a device-side flag).
+
+## M5 — hardening and extras
+
+- Schema v2 (checklist, calibration, audit, presets). Saves use update-or-insert: SQLite
+  `INSERT OR REPLACE` deletes and re-inserts the row, which would have reset the new columns.
+  Verified the v1 → v2 upgrade on the phone with existing recordings.
+- Per-take checklist (operator, posture, site, contact, ambient, breathing) → CSV columns;
+  dataset calibration record → JSON/ZIP manifest; local audit trail; protocol presets; review
+  queue; duplicate-label / missing-metadata banner; unfinished takes reopen the live screen.
+- Read-only device commands retry once after a timeout.
+- **BLE discovery race:** right after the ESP was reflashed, `connect()` resolved before
+  Android reported the link and `discoverServices()` never completed (10 s timeout). The link
+  now waits for the real connected state, then discovers with one retry.
+- Firmware host tests added in PCGKolect_rk (`make -f tests/Makefile.host`).
+- Final phone run with clean firmware builds: new take → Stop (incomplete) → Sync imported it
+  and deleted all three device copies, each only after hash verification + ACK.
