@@ -13,6 +13,8 @@ enum ConnUi { disconnected, connecting, connected, busy, error }
 
 /// Owns the device link and mirrors its state for the UI. Commands report success
 /// only after the device acknowledged them.
+const _readOnly = {'hello', 'status', 'stats', 'manifest', 'wifi_status', 'logs'};
+
 class DeviceController extends ChangeNotifier {
   DeviceLink? link;
   LinkState linkState = LinkState.disconnected;
@@ -103,7 +105,15 @@ class DeviceController extends ChangeNotifier {
     _busy++;
     notifyListeners();
     try {
-      final r = await l.call(op, args, timeout);
+      Map<String, dynamic> r;
+      try {
+        r = await l.call(op, args, timeout);
+      } on DeviceError catch (e) {
+        // Read-only ops are retried once after a timeout; state-changing ops are not
+        // (the device answers duplicates idempotently, but the operator decides).
+        if (e.status != Status.timeout || !_readOnly.contains(op)) rethrow;
+        r = await l.call(op, args, timeout);
+      }
       lastError = null;
       return r;
     } on DeviceError catch (e) {
