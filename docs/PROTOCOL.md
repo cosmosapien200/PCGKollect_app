@@ -185,7 +185,9 @@ Service `7a1c0001-5b6e-4e8a-9c1f-50434b4f4c54`
 
 **Fragmentation** (Command, Response, Telemetry, Wi-Fi): each value is `HDR u8 | data`.
 `HDR` bit7 = FIRST, bit6 = LAST, bits0–5 = fragment index mod 64. A message is the
-concatenation of fragments FIRST … LAST. The app requests MTU 247+.
+concatenation of fragments FIRST … LAST. The app requests MTU 517, but every fragment is at most
+**244 bytes** (header included) in both directions: some phones negotiate a large MTU yet drop
+larger GATT packets.
 
 Pairing: LE Secure Connections, Just Works, bonding. Writes to Command require an encrypted
 link; destructive ops (`delete`, `clear`, `wifi_set`) are rejected on unbonded links.

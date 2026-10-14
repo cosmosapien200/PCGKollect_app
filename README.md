@@ -61,7 +61,7 @@ Toolchain used: Flutter 3.47.7 (Dart 3.13), JDK 21, Android SDK 36, minSdk 24.
 ```bash
 flutter pub get
 flutter analyze
-flutter test                      # 13 tests incl. simulated record → sync → delete
+flutter test                      # unit tests + simulated record → sync → delete
 flutter build apk --debug         # build/app/outputs/flutter-apk/app-debug.apk
 flutter run                       # on a connected Android phone
 ```
@@ -81,7 +81,9 @@ is never put in URLs.
 
 - **M1 (done):** datasets, settings + activation, subject registration, BLE control, live
   recording, hotspot provisioning, verified sync/download, recording list and detail.
-- **M2:** playback with usable/unusable/unscored timeline, "useful audio only", 20–800 Hz enhance.
-- **M3:** dataset statistics (distributions, percentiles, Tukey outliers), filters, export.
-- **M4:** full device diagnostics, logs export.
+- **M2 (done):** playback with usable/unusable/unscored timeline, "useful audio only", 20–800 Hz enhance.
+- **M3 (done):** dataset statistics (distributions, percentiles, Tukey outliers), filters, CSV/JSON/ZIP export.
+- **M4 (done):** device diagnostics with history, logs export, guarded clear.
 - **M5:** hardening, review queue, presets, calibration record, audit trail.
+
+Tested on a Xiaomi phone (Android 14) with the real device; see [docs/DEVLOG.md](docs/DEVLOG.md).

@@ -18,6 +18,16 @@ Wire protocols: [PROTOCOL.md](PROTOCOL.md).
 | Identity | Opaque UUIDs (phone-generated) are machine keys; participant labels are presentation only and never appear in file names or device logs. | spec 04 §6.5 |
 | HTTP auth | Plain HTTP on the hotspot LAN, per-BLE-session random bearer token delivered over the bonded BLE link. Threat model in PROTOCOL.md. | spec 02 §6 |
 
+## Status (2026-10-14)
+
+| Milestone | State |
+|---|---|
+| M1 record + retrieve | done — verified with a real phone and a real heart recording |
+| M2 playback | done |
+| M3 stats + export | done |
+| M4 device page | done |
+| M5 hardening | in progress |
+
 ## Milestones and checkpoints
 
 Each checkpoint ends with a commit in every repo it touched.
