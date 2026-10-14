@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
@@ -173,6 +175,29 @@ class AppDb {
         .map((r) => Interval(r['start_sample'] as int, r['end_sample'] as int,
             (r['usable'] as int) == 1 ? 'usable' : 'unusable', (r['conf'] as num?)?.toDouble(),
             (r['pnoise'] as num?)?.toDouble(), r['reason'] as String))
+        .toList();
+  }
+}
+
+extension DeviceSnapshots on AppDb {
+  /// Diagnostics history (spec 01 §12 DeviceSnapshot); keeps the last 500 per device.
+  Future<void> addSnapshot(String deviceId, Map<String, dynamic> json) async {
+    await db.insert('device_snapshots', {
+      'device_id': deviceId,
+      'ts': DateTime.now().millisecondsSinceEpoch,
+      'json': jsonEncode(json),
+    });
+    await db.rawDelete(
+        'DELETE FROM device_snapshots WHERE device_id = ? AND ts NOT IN '
+        '(SELECT ts FROM device_snapshots WHERE device_id = ? ORDER BY ts DESC LIMIT 500)',
+        [deviceId, deviceId]);
+  }
+
+  Future<List<(DateTime, Map<String, dynamic>)>> snapshots(String deviceId, {int limit = 100}) async {
+    final rows = await db.query('device_snapshots',
+        where: 'device_id = ?', whereArgs: [deviceId], orderBy: 'ts DESC', limit: limit);
+    return rows
+        .map((r) => (DateTime.fromMillisecondsSinceEpoch(r['ts'] as int), jsonDecode(r['json'] as String) as Map<String, dynamic>))
         .toList();
   }
 }

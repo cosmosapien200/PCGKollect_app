@@ -33,6 +33,13 @@ class HttpFileSource implements FileSource {
     }
   }
 
+  /// ESP + RV diagnostics over HTTP (adds the ESP heap/RSSI/link counters).
+  Future<Map<String, dynamic>> stats() async {
+    final r = await _client.get(Uri.parse('$base/stats'), headers: _auth).timeout(const Duration(seconds: 5));
+    if (r.statusCode != 200) throw TransferException('Stats failed (${r.statusCode})');
+    return jsonDecode(r.body) as Map<String, dynamic>;
+  }
+
   @override
   Future<List<ManifestItem>> manifest() async {
     final r = await _client.get(Uri.parse('$base/recordings'), headers: _auth).timeout(const Duration(seconds: 20));

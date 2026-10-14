@@ -54,7 +54,12 @@ def main():
             with open(os.path.join(SHOTS, arg + '.png'), 'wb') as f:
                 f.write(png)
         elif op == 'tap':
-            hit = next(((t, c) for t, c in nodes(a.serial) if arg.lower() in t.lower()), None)
+            hit = None
+            for _ in range(8):          # wait up to ~8 s for the element to appear
+                hit = next(((t, c) for t, c in nodes(a.serial) if arg.lower() in t.lower()), None)
+                if hit:
+                    break
+                time.sleep(1)
             if not hit:
                 sys.exit(f'not found: {arg}')
             adb(a.serial, 'shell', 'input', 'tap', str(hit[1][0]), str(hit[1][1]))

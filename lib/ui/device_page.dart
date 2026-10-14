@@ -1,12 +1,18 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:universal_ble/universal_ble.dart' show BleDevice;
 
 import '../device/ble_link.dart';
+import '../data/db.dart';
 import '../device/device_link.dart';
+import '../device/http_files.dart';
 import '../state/app_state.dart';
 import '../state/device_controller.dart';
 import 'common.dart';
@@ -40,9 +46,18 @@ class _DevicePageState extends State<DevicePage> {
 
   Future<void> _poll() async {
     final dev = context.read<DeviceController>();
+    final app = context.read<AppState>();
     if (!dev.connected) return;
     try {
-      final s = await dev.link!.call('stats');
+      // Prefer HTTP (adds ESP heap/RSSI/link counters); fall back to BLE.
+      final fs = dev.fileSource();
+      Map<String, dynamic> s;
+      try {
+        s = fs is HttpFileSource ? await fs.stats() : await dev.link!.call('stats');
+      } catch (_) {
+        s = await dev.link!.call('stats');
+      }
+      await app.db.addSnapshot(dev.deviceId, s);
       if (mounted) {
         setState(() {
           stats = s;
@@ -50,6 +65,30 @@ class _DevicePageState extends State<DevicePage> {
         });
       }
     } catch (_) {}
+  }
+
+  Future<void> _exportLogs(BuildContext context) async {
+    final dev = context.read<DeviceController>();
+    final app = context.read<AppState>();
+    final r = await guarded(context, () => dev.call('logs', {'lines': 40}));
+    if (r == null) return;
+    final snaps = await app.db.snapshots(dev.deviceId, limit: 60);
+    final b = StringBuffer()
+      ..writeln('PCGKolect device log export ${DateTime.now().toUtc().toIso8601String()}')
+      ..writeln('device ${dev.deviceId}  info ${jsonEncode(dev.info)}')
+      ..writeln('\n== RV1103 session log (most recent)');
+    for (final l in (r['lines'] as List)) {
+      b.writeln(l);
+    }
+    b.writeln('\n== Diagnostics snapshots (newest first)');
+    for (final s in snaps) {
+      b.writeln('${s.$1.toUtc().toIso8601String()} ${jsonEncode(s.$2)}');
+    }
+    final dir = Directory(p.join(app.root, 'exports'));
+    await dir.create(recursive: true);
+    final f = File(p.join(dir.path, 'device_log_${DateTime.now().millisecondsSinceEpoch}.txt'));
+    await f.writeAsString(b.toString());
+    await SharePlus.instance.share(ShareParams(files: [XFile(f.path)], subject: 'PCGKolect device log'));
   }
 
   @override
@@ -73,6 +112,11 @@ class _DevicePageState extends State<DevicePage> {
               onPressed: () => showSyncSheet(context, deleteAfter: true),
               icon: const Icon(Icons.sync),
               label: const Text('Sync (download + delete verified)'),
+            ),
+            OutlinedButton.icon(
+              onPressed: () => _exportLogs(context),
+              icon: const Icon(Icons.receipt_long),
+              label: const Text('Export device logs'),
             ),
             OutlinedButton.icon(
               style: OutlinedButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
@@ -346,8 +390,15 @@ class _InfoCard extends StatelessWidget {
         padding: const EdgeInsets.all(12),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text('Device', style: Theme.of(context).textTheme.titleMedium),
-          Text(statsAt == null ? 'Stats not loaded' : 'Updated ${fmtDate(statsAt)} (every 10 s)',
-              style: Theme.of(context).textTheme.bodySmall),
+          Text(
+            statsAt == null
+                ? 'Stats not loaded'
+                : DateTime.now().difference(statsAt!).inSeconds > 30
+                    ? 'STALE — last update ${fmtDate(statsAt)}'
+                    : 'Updated ${fmtDate(statsAt)} (every 10 s)',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: statsAt != null && DateTime.now().difference(statsAt!).inSeconds > 30 ? Theme.of(context).colorScheme.error : null),
+          ),
           KV('Device ID', dev.deviceId),
           KV('Firmware', 'ESP ${i['esp_fw'] ?? '—'} · RV ${i['rv_fw'] ?? '—'}'),
           KV('Model', '${model['version'] ?? '—'}${model['loaded'] == false ? ' (NOT LOADED)' : ''}'),
@@ -366,6 +417,12 @@ class _InfoCard extends StatelessWidget {
               : '${uart['frames_ok']} frames · ${uart['crc_errors']} CRC errors · ${uart['seq_gaps']} lost frames'
                   '${upMin > 1 ? ' (${(((uart['crc_errors'] as num) + (uart['seq_gaps'] as num)) / upMin * 60).toStringAsFixed(1)}/h)' : ''}'),
           KV('Average SNR', 'not defined yet'),
+          if (s['esp'] is Map) ...[
+            KV('ESP uptime', fmtDuration(((s['esp']['uptime_s'] as num?) ?? 0) * 1000)),
+            KV('ESP free RAM', '${fmtBytes(s['esp']['heap_internal_free'] as num?)} internal · ${fmtBytes(s['esp']['heap_free'] as num?)} total'),
+            KV('Hotspot signal', '${s['esp']['wifi_rssi']} dBm'),
+            KV('ESP link', 'baud ${(s['esp']['link'] as Map)['baud']} · ${(s['esp']['link'] as Map)['rx_crc_errors']} CRC · ${(s['esp']['link'] as Map)['req_retries']} retries · ${(s['esp']['link'] as Map)['link_downs']} link drops'),
+          ],
         ]),
       ),
     );
