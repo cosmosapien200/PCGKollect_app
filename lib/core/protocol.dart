@@ -21,7 +21,8 @@ class Gatt {
 /// Splits a JSON message into BLE fragments: HDR (bit7 FIRST, bit6 LAST, bits0-5 index) + data.
 List<Uint8List> fragment(String json, int mtu) {
   final data = utf8.encode(json);
-  final chunk = (mtu - 3 - 1).clamp(19, 511);
+  // <= 244 B per fragment: some phones drop larger GATT packets despite a 517 MTU
+  final chunk = (mtu - 3 - 1).clamp(19, 243);
   final out = <Uint8List>[];
   var off = 0, idx = 0;
   do {
