@@ -57,7 +57,10 @@ class _PcgKolectAppState extends State<PcgKolectApp> {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider.value(value: app!),
-        ChangeNotifierProvider(create: (_) => DeviceController()),
+        // plugging the device in by USB connects to it (the cable is the operator's intent)
+        ChangeNotifierProvider(create: (_) => DeviceController()
+          ..watchUsb()
+          ..autoConnectUsb()),
       ],
       child: materialApp(const HomeShell()),
     );

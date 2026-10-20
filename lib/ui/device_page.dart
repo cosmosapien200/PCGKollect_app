@@ -10,6 +10,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:universal_ble/universal_ble.dart' show BleDevice;
 
 import '../device/ble_link.dart';
+import '../device/usb_link.dart';
 import '../data/db.dart';
 import '../device/device_link.dart';
 import '../device/http_files.dart';
@@ -99,7 +100,7 @@ class _DevicePageState extends State<DevicePage> {
       body: ListView(padding: const EdgeInsets.all(16), children: [
         _ConnectionCard(onConnected: _poll),
         if (dev.connected) ...[
-          const _WifiCard(),
+          if (!dev.isUsb) const _WifiCard(),
           _InfoCard(stats: stats, statsAt: statsAt),
           const SectionTitle('Recordings on the device'),
           Wrap(spacing: 12, runSpacing: 8, children: [
@@ -207,12 +208,17 @@ class _ConnectionCardState extends State<_ConnectionCard> {
     final dev = context.watch<DeviceController>();
     final t = Theme.of(context).textTheme;
     if (dev.connected) {
+      final extra = dev.isSimulated
+          ? '\nSimulated device — recordings are synthetic'
+          : dev.isUsb
+              ? '\nUSB cable: control and transfers${dev.standby != null ? ' · Bluetooth on standby' : ''}'
+              : '';
       return Card(
         child: ListTile(
-          leading: const Icon(Icons.bluetooth_connected, color: Colors.green),
+          leading: Icon(dev.isUsb ? Icons.usb : Icons.bluetooth_connected, color: Colors.green),
           title: Text(dev.name),
-          subtitle: Text('Device ID ${dev.deviceId}${dev.isSimulated ? '\nSimulated device — recordings are synthetic' : ''}'),
-          isThreeLine: dev.isSimulated,
+          subtitle: Text('Device ID ${dev.deviceId}$extra'),
+          isThreeLine: extra.isNotEmpty,
           trailing: TextButton(onPressed: dev.disconnect, child: const Text('Disconnect')),
         ),
       );
@@ -221,6 +227,35 @@ class _ConnectionCardState extends State<_ConnectionCard> {
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('Connect by USB cable', style: t.titleMedium),
+          const Text('Plug the recorder\'s USB-C port into this phone (OTG). Control and downloads go over the '
+              'cable — no Bluetooth or hotspot needed. The phone powers the recorder.'),
+          const SizedBox(height: 8),
+          FutureBuilder(
+            future: AndroidUsb.list(),
+            builder: (c, s) {
+              final l = s.data ?? [];
+              if (l.isEmpty) return const Text('No device on USB.', style: TextStyle(fontStyle: FontStyle.italic));
+              return Column(children: [
+                for (final d in l)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.usb),
+                    title: Text(d.product),
+                    subtitle: Text(d.permission ? 'Plugged in' : 'Plugged in · tap to allow access'),
+                    trailing: dev.ui == ConnUi.connecting ? const CircularProgressIndicator() : const Icon(Icons.link),
+                    onTap: dev.ui == ConnUi.connecting
+                        ? null
+                        : () async {
+                            await guarded(context, () => dev.connectUsb(d));
+                            widget.onConnected();
+                          },
+                  ),
+              ]);
+            },
+          ),
+          TextButton.icon(onPressed: () => setState(() {}), icon: const Icon(Icons.refresh), label: const Text('Check USB again')),
+          const Divider(),
           Text('Connect over Bluetooth', style: t.titleMedium),
           const Text('Bluetooth is used for control and status. Recordings travel over the phone hotspot.'),
           const SizedBox(height: 8),

@@ -86,7 +86,7 @@ class ConnChip extends StatelessWidget {
     final (label, color, icon) = switch (dev.ui) {
       ConnUi.disconnected => ('Disconnected', cs.outline, Icons.bluetooth_disabled),
       ConnUi.connecting => ('Connecting', Colors.amber.shade700, Icons.bluetooth_searching),
-      ConnUi.connected => ('Connected', Colors.green.shade700, Icons.bluetooth_connected),
+      ConnUi.connected => ('Connected', Colors.green.shade700, dev.isUsb ? Icons.usb : Icons.bluetooth_connected),
       ConnUi.busy => ('Busy', Colors.blue.shade700, Icons.sync),
       ConnUi.error => ('Error', cs.error, Icons.error_outline),
     };

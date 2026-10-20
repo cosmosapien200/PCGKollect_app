@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- PCGKolect RV1103 (Rockchip gadget, adb + RNDIS + PCGKolect vendor link).
+     Plugging it in offers to open the app; "always" also grants USB permission. -->
+<resources>
+    <usb-device vendor-id="8711" product-id="25" />
+</resources>

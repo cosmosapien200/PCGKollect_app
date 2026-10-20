@@ -89,7 +89,14 @@ class DeviceError implements Exception {
         'BLE_DISCONNECTED' => 'The device is not connected.',
         'BLE_WRITE_FAILED' => 'Sending to the device over Bluetooth failed.',
         'LINK_DOWN' => 'The Bluetooth module cannot reach the recorder board.',
-        'RV_TIMEOUT' || 'BLE_TIMEOUT' => 'The device did not answer in time.',
+        'RV_TIMEOUT' || 'BLE_TIMEOUT' || 'USB_TIMEOUT' => 'The device did not answer in time.',
+        'USB_DISCONNECTED' => 'The USB cable was disconnected.',
+        'USB_WRITE_FAILED' || 'USB_WRITE' => 'Sending to the device over USB failed.',
+        'USB_PERMISSION' => 'USB access was not allowed. Plug the cable in again and tap Allow.',
+        'USB_NOT_FOUND' => 'The device is no longer plugged in.',
+        'USB_OPEN' => 'The phone could not open the device\'s USB connection.',
+        'USB_NO_ANSWER' => 'The device is plugged in but its recorder firmware does not answer on USB. '
+            'It may still be starting (wait ~20 s) or need a firmware update.',
         'SETTINGS' => 'The device rejected setting "${field ?? '?'}".',
         _ => '$status: $code',
       };
