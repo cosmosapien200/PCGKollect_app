@@ -9,27 +9,36 @@
 
 Companion app for **PCGKolect — System and Method for Intelligent Phonocardiogram Dataset
 Acquisition Using Real-Time Recording Quality Assessment**. It manages research datasets and
-subjects, drives the recorder over Bluetooth, shows live acquisition quality, and pulls
-recordings over the phone's Wi-Fi hotspot into a verified local archive.
+subjects, drives the recorder over Bluetooth or a USB cable, shows live acquisition quality, and
+pulls recordings (over the phone's Wi-Fi hotspot or the cable) into a verified local archive.
 
 PCGKolect is a research data-collection instrument, **not** a diagnostic or health-monitoring
 device. The app reports acquisition quality only (usable, noisy, incomplete, …).
 
 Related repositories:
-- [PCGKolect](https://github.com/cosmosapien200/PCGKolect) — ESP32-S3 firmware (audio, BLE, Wi-Fi/HTTP)
-- [PCGKolect_rk](https://github.com/cosmosapien200/PCGKolect_rk) — RV1103 firmware (quality model, recording engine, OLED)
+- [PCGKolect](https://github.com/cosmosapien200/PCGKolect) — ESP32-S3 firmware (audio, BLE, Wi-Fi/HTTP); pin map in its `PINS.md`
+- [PCGKolect_rk](https://github.com/cosmosapien200/PCGKolect_rk) — RV1103 firmware (quality model, recording engine, OLED, USB wired link)
 - [PCGKolect_model](https://github.com/cosmosapien200/PCGKolect_model) — quality models and training
 
 Design documents: [docs/PLAN.md](docs/PLAN.md) (milestones and decisions) and
-[docs/PROTOCOL.md](docs/PROTOCOL.md) (UART link, control JSON, BLE GATT, HTTP API, file formats).
+[docs/PROTOCOL.md](docs/PROTOCOL.md) (UART link, control JSON, BLE GATT, HTTP API, file formats,
+USB wired link).
 
 ## How it works
 
 ```
  phone app ──BLE (control, telemetry, hotspot credentials)──► ESP32-S3 ──UART 4 Mbaud──► RV1103
-     ▲                                                           │                       (model,
-     └──────── HTTP over the phone's hotspot (recordings) ◄──────┘◄── file chunks ──────  recordings)
+     ▲  ▲                                                        │                       (model,
+     │  └───── HTTP over the phone's hotspot (recordings) ◄──────┘◄── file chunks ──────  recordings)
+     │                                                                                     ▲
+     └──────────── USB cable, OTG (control + recordings, no radio) ────────────────────────┘
 ```
+
+The **USB wired link** is for places where the 2.4 GHz band is too crowded for BLE/Wi-Fi to work
+reliably. Plug the recorder's USB-C port into the phone (OTG adapter; the phone powers it): the
+app connects by itself, commands and downloads go over the cable (~25× faster than the hotspot),
+and an open Bluetooth link stays on standby in case the cable is pulled. The ESP32 still supplies
+the audio to the RV1103 over the UART.
 
 1. **Datasets** (`+` in the drawer) hold their own subjects, recordings and recording policy.
 2. **DS Settings**: usable-beat confidence threshold (default 80 %), rhythm check, usable time /
@@ -39,8 +48,8 @@ Design documents: [docs/PLAN.md](docs/PLAN.md) (milestones and decisions) and
    the device is armed and starts automatically after 2 s of reliable audio (**Force Start**
    skips only the wait) → live score, usable time vs. target, beats and runs → **DONE** when the
    targets are met.
-4. **Sync / Download**: the device joins the phone's hotspot (credentials sent over bonded BLE),
-   the app downloads each recording to a temp folder (resumable), checks sizes and SHA-256 and
+4. **Sync / Download**: over the cable, or the device joins the phone's hotspot (credentials
+   sent over bonded BLE); the app downloads each recording to a temp folder (resumable), checks sizes and SHA-256 and
    the WAV header, commits files + database rows, then acknowledges the hash. Sync also deletes
    the device copy — only after that acknowledgement; Download keeps it.
 
@@ -48,9 +57,12 @@ Design documents: [docs/PLAN.md](docs/PLAN.md) (milestones and decisions) and
 
 ```
 lib/core/protocol.dart        UUIDs, BLE fragmentation, status/manifest models, Policy + validation
+lib/core/frames.dart          link message frame codec (USB wired link)
 lib/data/                     SQLite schema (versioned migrations) and models
 lib/device/ble_link.dart      BLE control link (universal_ble, BSD-3)
 lib/device/http_files.dart    authenticated HTTP downloads with Range resume
+lib/device/usb_link.dart      USB wired link: control + pipelined, resumable file reads
+android/.../UsbBridge.kt      Android USB host bridge (permission, attach/detach, bulk I/O)
 lib/device/sim_link.dart      simulated device (emulator/UI tests; synthetic recordings, clearly marked)
 lib/services/sync_service.dart  verified download → commit → ack → delete
 lib/services/wav.dart         WAV validation/building
@@ -59,6 +71,7 @@ lib/ui/                       pages: shell, DS settings, DS stats, data list/det
                               live recording, device settings, sync sheet
 test/                         unit tests + end-to-end sync tests against the simulated device
 tools/ui_drive.py             adb helper to drive the app on an emulator/phone
+tools/make_icons.py           launcher icons + splash images from the logo PNGs
 ```
 
 ## Build and run
@@ -69,9 +82,13 @@ Toolchain used: Flutter 3.47.7 (Dart 3.13), JDK 21, Android SDK 36, minSdk 24.
 flutter pub get
 flutter analyze
 flutter test                      # unit tests + simulated record → sync → delete
-flutter build apk --debug         # build/app/outputs/flutter-apk/app-debug.apk
+flutter build apk --release       # build/app/outputs/flutter-apk/app-release.apk (no debug banner)
 flutter run                       # on a connected Android phone
 ```
+
+Testing with the recorder on the phone's USB port: the PC reaches the phone over Wi-Fi adb.
+While the phone is still on the PC's cable run `adb tcpip 5555`, then (phone and PC on the same
+network) `adb connect <phone-ip>:5555`, and move the cable to the recorder.
 
 The Android emulator has no Bluetooth: use **Device Settings → Use simulated device** to exercise
 every screen and the full sync path with synthetic data. Real BLE + hotspot transfer needs an
@@ -91,6 +108,8 @@ is never put in URLs.
 - **M2 (done):** playback with usable/unusable/unscored timeline, "useful audio only", 20–800 Hz enhance.
 - **M3 (done):** dataset statistics (distributions, percentiles, Tukey outliers), filters, CSV/JSON/ZIP export.
 - **M4 (done):** device diagnostics with history, logs export, guarded clear.
-- **M5:** hardening, review queue, presets, calibration record, audit trail.
+- **M5 (done):** hardening, review queue, presets, calibration record, audit trail.
+- **M6 (done):** app icon + splash screen, release build, USB wired link to the recorder.
 
-Tested on a Xiaomi phone (Android 14) with the real device; see [docs/DEVLOG.md](docs/DEVLOG.md).
+Tested on a Xiaomi phone (Android 14) with the real device, over BLE + hotspot and over USB;
+see [docs/DEVLOG.md](docs/DEVLOG.md).

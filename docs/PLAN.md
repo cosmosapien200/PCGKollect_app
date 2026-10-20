@@ -10,15 +10,16 @@ Wire protocols: [PROTOCOL.md](PROTOCOL.md).
 | RV1103 ↔ ESP32 link | **No hardware change.** The existing duplex UART (ESP GPIO17/18 ↔ RV `/dev/ttyS3`) carries everything through a versioned typed-frame multiplexer: legacy audio frames (`A5 5A`) plus message frames (`A5 5C`) for control, telemetry and file chunks. Baud raised from 460800 to the highest rate that benchmarks error-free (RV clocks are exact at 1.5/3/4 Mbaud). | user |
 | Quality score / usability | One user knob per dataset: **beat confidence threshold**, default **0.80**. A beat is usable when the v2 decoder emits it, its confidence ≥ threshold, its duration is 0.3–2.0 s and (if rhythm check enabled) it is within ±30 % of the neighbour median. The live 0–100 `window_quality_score` = 100 × mean max-heart-state posterior of the last second (`SegQuality::recentConf`). v1 SQI / CLEAN / NOISE / CLIPPING metrics never gate anything. | user |
 | Clipping | Never rejects data. Clipping ratio is recorded as an informational statistic only. | user |
-| Platforms | Android (Flutter). Code stays cross-platform but only Android is built/tested. Emulator has no BLE, so the app ships a **simulated device** backend and `tools/mock_device.py` for UI/transfer testing; BLE/hotspot are tested on a real phone. | user |
+| Platforms | Android (Flutter). Code stays cross-platform but only Android is built/tested. Emulator has no BLE, so the app ships a **simulated device** backend for UI/transfer testing; BLE/hotspot are tested on a real phone. | user |
 | Usable time | Union of usable-beat intervals on the recording's sample axis (no double counting). Coverage = usable / scored. | spec 04 §2 |
 | Auto-start | 2 s (setting) of **contiguous** usable-beat coverage while armed. A rolling pre-trigger buffer keeps that audio, so the recording starts at the first qualifying beat. Force Start skips the wait only. | spec 03 §4.3 |
 | UART gaps | Missing frames (sequence gap / CRC drop / overrun) are written as zero samples so the WAV time axis stays true; each gap is listed in metadata and labelled `unscored`. | spec 04 §5 |
 | Settings changes | Apply to future recordings only; rejected while a recording is active. | spec 04 §6.9 |
 | Identity | Opaque UUIDs (phone-generated) are machine keys; participant labels are presentation only and never appear in file names or device logs. | spec 04 §6.5 |
+| Crowded radio band | Added later (M6): a **USB wired link** phone ↔ RV1103 alongside BLE/Wi-Fi, using the same control ops and file reads; no hardware change (vendor USB interface via FunctionFS next to adb). | user |
 | HTTP auth | Plain HTTP on the hotspot LAN, per-BLE-session random bearer token delivered over the bonded BLE link. Threat model in PROTOCOL.md. | spec 02 §6 |
 
-## Status (2026-10-14)
+## Status (2026-10-20)
 
 | Milestone | State |
 |---|---|
@@ -26,7 +27,8 @@ Wire protocols: [PROTOCOL.md](PROTOCOL.md).
 | M2 playback | done |
 | M3 stats + export | done |
 | M4 device page | done |
-| M5 hardening | in progress |
+| M5 hardening | done (open: pipelined HTTP reads, release signing key, long HIL soak) |
+| M6 branding + USB wired link | done — verified on the phone over USB |
 
 ## Milestones and checkpoints
 
@@ -51,8 +53,14 @@ Diagnostics (versions, model hash, uptime, UART counters + rates, RAM/CPU, stora
 ### M5 — Hardening
 Interruption/reconnect recovery, resume tests, HIL load test (USB + UART + BLE + Wi-Fi), recording checklist, review queue, settings presets, calibration record, audit trail.
 
+### M6 — Branding and USB wired link
+App icon and splash from the logo, debug banner off. USB wired link phone ↔ RV1103 (`pcg_usbd`
+FunctionFS vendor interface, multi-link control server, `identity` op, Android USB host bridge,
+`UsbLink`, auto-connect with BLE standby). PROTOCOL.md §6.
+
 ## Test strategy
 - Firmware: protocol unit tests (CRC vectors, frame parser incl. split/corrupt input, JSON command validation) on host; RK parity tests stay green.
 - Link: on-board benchmark (bytes/s, CRC errors) at each candidate baud while audio streams.
-- App: Dart unit tests (stats/quantiles, WAV parsing, interval union, transfer verification), widget tests, emulator run against simulated device / `mock_device.py`.
+- App: Dart unit tests (stats/quantiles, WAV parsing, interval union, transfer verification, USB frame codec + link against a fake RV), emulator run against the simulated device.
+- USB link: RV host tests with two pty links; `PCGKolect_rk/tools/usb_link_test.py` with the PC as USB host.
 - End to end: real phone + device (needs the user's phone).
