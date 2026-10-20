@@ -50,6 +50,33 @@ class UsbBridge(private val context: Context, messenger: BinaryMessenger) {
     @Volatile private var running = false
     private var pendingOpen: Pair<String, MethodChannel.Result>? = null
 
+    private var openName: String? = null
+
+    private val receiver = object : BroadcastReceiver() {
+        override fun onReceive(c: Context, intent: Intent) {
+            when (intent.action) {
+                ACTION_PERMISSION -> {
+                    val p = pendingOpen ?: return
+                    pendingOpen = null
+                    val d = usb.deviceList[p.first]
+                    if (d != null && usb.hasPermission(d)) doOpen(d, p.second)
+                    else p.second.error("USB_PERMISSION", "USB permission was not granted", null)
+                }
+                UsbManager.ACTION_USB_DEVICE_ATTACHED -> {
+                    val d = intent.parcelableDevice() ?: return
+                    if (findInterface(d) != null) emitAttach("attached", d.deviceName)
+                }
+                UsbManager.ACTION_USB_DEVICE_DETACHED -> {
+                    val d = intent.parcelableDevice() ?: return
+                    if (findInterface(d) != null || d.deviceName == openName) {
+                        if (d.deviceName == openName) close()
+                        emitAttach("detached", d.deviceName)
+                    }
+                }
+            }
+        }
+    }
+
     init {
         MethodChannel(messenger, "pcgk/usb").setMethodCallHandler(::onCall)
         EventChannel(messenger, "pcgk/usb/data").setStreamHandler(object : EventChannel.StreamHandler {
@@ -89,36 +116,9 @@ class UsbBridge(private val context: Context, messenger: BinaryMessenger) {
     private fun emitAttach(event: String, name: String) =
         main.post { attachSink?.success(mapOf("event" to event, "name" to name)) }
 
-    private val receiver = object : BroadcastReceiver() {
-        override fun onReceive(c: Context, intent: Intent) {
-            when (intent.action) {
-                ACTION_PERMISSION -> {
-                    val p = pendingOpen ?: return
-                    pendingOpen = null
-                    val d = usb.deviceList[p.first]
-                    if (d != null && usb.hasPermission(d)) doOpen(d, p.second)
-                    else p.second.error("USB_PERMISSION", "USB permission was not granted", null)
-                }
-                UsbManager.ACTION_USB_DEVICE_ATTACHED -> {
-                    val d = intent.parcelableDevice() ?: return
-                    if (findInterface(d) != null) emitAttach("attached", d.deviceName)
-                }
-                UsbManager.ACTION_USB_DEVICE_DETACHED -> {
-                    val d = intent.parcelableDevice() ?: return
-                    if (findInterface(d) != null || d.deviceName == openName) {
-                        if (d.deviceName == openName) close()
-                        emitAttach("detached", d.deviceName)
-                    }
-                }
-            }
-        }
-    }
-
     private fun Intent.parcelableDevice(): UsbDevice? =
         if (Build.VERSION.SDK_INT >= 33) getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
         else @Suppress("DEPRECATION") getParcelableExtra(UsbManager.EXTRA_DEVICE)
-
-    private var openName: String? = null
 
     private fun findInterface(d: UsbDevice): UsbInterface? {
         for (i in 0 until d.interfaceCount) {
