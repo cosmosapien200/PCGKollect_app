@@ -97,3 +97,22 @@ Newest last. Design: [PLAN.md](PLAN.md), wire formats: [PROTOCOL.md](PROTOCOL.md
 - Firmware host tests added in PCGKolect_rk (`make -f tests/Makefile.host`).
 - Final phone run with clean firmware builds: new take → Stop (incomplete) → Sync imported it
   and deleted all three device copies, each only after hash verification + ACK.
+
+## M6 — branding and the USB wired link (2026-10-20)
+
+- **Branding.** Launcher icon (legacy + adaptive with monochrome layer), Android 12+ system
+  splash and an in-app splash from the PCGKollect logo (`tools/make_icons.py` cleans the
+  off-white, vignetted source PNGs to black-on-transparent). Debug banner off; release builds.
+  Providers moved above `MaterialApp` (pushed routes must see them).
+- **USB wired link** (PROTOCOL.md §6) for places where BLE/Wi-Fi to the ESP32 is unreliable:
+  `UsbBridge.kt` (Android USB host, permission, attach/detach), `core/frames.dart` (frame codec),
+  `UsbLink` + `UsbFileSource` (8 pipelined 4 KB reads, resume, re-request on timeout).
+  Plugging the recorder in connects automatically; a connected BLE link stays on standby and
+  takes over when the cable is pulled; the hotspot card is hidden on the cable.
+- Bug found on the release build only: in `UsbBridge.kt` the `init` block used the
+  `receiver` property declared below it (Kotlin initialises in order).
+- **Testing setup:** the phone's USB port is taken by the recorder, so the PC reaches the phone
+  over Wi-Fi adb (`adb tcpip 5555` while still on the cable, then `adb connect <phone-ip>:5555`;
+  phone and PC on the same router).
+- Verified on the phone: auto-connect over USB, device id `pcgk-…` same as BLE, live stats,
+  a recording made and downloaded/verified over the cable, Download re-run idempotent.
