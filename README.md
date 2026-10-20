@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/branding/logo_full_white.png">
+    <img src="docs/branding/logo_full.png" alt="PCGKollect" width="220">
+  </picture>
+</p>
+
 # PCGKolect App
 
 Companion app for **PCGKolect — System and Method for Intelligent Phonocardiogram Dataset
