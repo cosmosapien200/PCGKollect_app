@@ -10,6 +10,7 @@ Each interface is versioned independently:
 | Audio frame format | `AUDIO_PROTO` | 1 (unchanged legacy frame) |
 | Control JSON (app ↔ ESP ↔ RV) | `CTRL_PROTO` | 1 |
 | HTTP API | path prefix `/v1` | 1 |
+| USB wired link (phone ↔ RV) | interface 0xFF/0x50/0x01 | 1 (same frames as `LINK_PROTO` 1) |
 | Recording metadata | `schema_version` | 1 |
 
 ---
@@ -116,7 +117,8 @@ and never forwarded.
 | `delete` | RV | `recording_id, sha256` | `deleted:true` — REJECTED `NOT_VERIFIED` unless acked with the same hash |
 | `clear` | RV | `force` (bool, default false) | `deleted[], kept[]`; without `force` only verified recordings are deleted |
 | `logs` | RV | `lines?` (≤ 40) | `lines[]` |
-| `ping`, `link_stats`, `baud`, `flood` | RV | – | link maintenance / benchmark (ESP-internal) |
+| `ping`, `link_stats`, `baud`, `flood` | RV | – | link maintenance / benchmark (ESP-internal; `baud` is UART only) |
+| `identity` | RV | `device_id, esp_fw` | – (sent by the ESP at every link-up; the RV reports them in `hello`, also over USB) |
 | `wifi_set` | **ESP** | `ssid, pass` | `state` |
 | `wifi_forget` | **ESP** | – | – |
 | `wifi_status` | **ESP** | – | `state (off|connecting|connected|failed), ssid, ip, port, rssi, token (bonded links only), http_ready, err` |
@@ -267,3 +269,36 @@ files{audio,beats,quality,meta: {size, sha256}}`.
 
 Transfer states: `available → verified (ack) → deleted`. Only `verified` with matching hash may
 be deleted. The phone never deletes on transport completion alone.
+
+## 6. USB wired link (phone ↔ RV1103)
+
+For places where the radio band is too crowded for BLE/Wi-Fi to the ESP32. The phone is the
+USB host (OTG) and powers the recorder; the ESP32 still delivers audio over the UART.
+
+**Device side.** The RV1103 kernel has no USB serial gadget, so `pcg_usbd` (PCGKolect_rk)
+adds a FunctionFS function `ffs.pcg` to the existing gadget (RNDIS + adb, VID 0x2207 PID 0x0019):
+one vendor interface, class 0xFF, subclass 0x50, protocol 0x01, string "PCGKolect link",
+bulk OUT (host → device) and bulk IN, 512 B packets at high speed. `pcg_usbd` bridges the two
+endpoints to a pty (`/dev/pcg_usb`) that the firmware opens as a second link endpoint.
+The function is mounted with `no_disconnect=1`, so adb keeps working if the daemon stops;
+`S99pcgkolect` adds it with one UDC rebind at boot and removes it again if the bind fails.
+
+**Framing.** Exactly the message frames of §1.1 (`A5 5C | LEN | TYPE | SEQ | DATA | CRC16`):
+REQ from the phone, RSP/EVT/CHUNK from the RV. No audio frames. A device write that is a
+multiple of 64 bytes is split so every bulk transfer ends with a short packet.
+
+**Semantics.**
+- All RV ops of §2 work unchanged; ESP-only ops (`wifi_*`) answer `UNSUPPORTED UNKNOWN_OP`.
+- The RV's single control worker runs requests from both links one at a time; each answer goes
+  back on the link it came from; the retry cache is per link (ids are per client).
+- Status events (§2.2) go to every link whose peer has spoken. A link whose writes time out
+  (300 ms, cable pulled / app closed) is muted until the peer sends a valid frame again, so
+  an absent phone never stalls recording.
+- File transfer: `open` → `read` × N (the app keeps 8 in flight, 4 KB each) → `close`; reads
+  are idempotent and re-requested on timeout; resume from a partial file by starting at its
+  length. Measured 1.6 MB/s (PC host), vs ~62 KB/s over the hotspot.
+- Bonding does not apply: physical access to the cable is the authorisation.
+
+**App.** Plugging the recorder in connects over USB (Android offers to open the app; "always"
+also grants USB permission). An already connected BLE link stays on standby and takes over if
+the cable is pulled. Downloads, sync, ACK and delete follow the same verified flow as HTTP.
